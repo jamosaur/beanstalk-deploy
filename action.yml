@@ -13,7 +13,7 @@ inputs:
     required: true
   aws_session_token:
     description: 'AWS Session Token when using temporary security credentials such as when assuming a role in AWS through STS'
-    required: false  
+    required: false
   region:
     description: 'AWS Region'
     required: true
@@ -41,7 +41,10 @@ inputs:
   wait_for_environment_recovery:
     description: 'How many seconds to wait for the environment to return to Green state after deployment is finished. Default is 30 seconds.'
     required: false
+  bucket_name:
+    description: 'The S3 bucket that deployment packages should be uploaded to. If left blank, one will be generated'
+    required: false
 
 branding:
-  icon: 'arrow-up'  
+  icon: 'arrow-up'
   color: 'green'

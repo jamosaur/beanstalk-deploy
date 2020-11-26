@@ -85,6 +85,9 @@ triggered the build, `version_description: ${{github.SHA}}`.
 `environment_name`: In version 10 this parameter becomes optional. If you don't pass an environment in the action will simply create
 the version but not deploy it anywhere.
 
+`bucket_name`: Name of the bucket to upload the source bundle to. If you don't provide this, the bucket will be generated
+ using the elastic beanstalk `CreateStorageLocation` api call.
+
 ### Failure modes
 If you're uploading a new version the action will fail if that file already exists in S3, if the application version
 exists in Beanstalk and of course if the deployment fails. The action will wait until Beanstalk reports that the

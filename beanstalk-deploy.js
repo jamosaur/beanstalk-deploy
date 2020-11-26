@@ -11,7 +11,7 @@ if (IS_GITHUB_ACTION) {
     console.warn = msg => console.log(`::warning::${msg}`);
 }
 
-function createStorageLocation() {
+function createStorageLocation() {
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {Operation: 'CreateStorageLocation', Version: '2010-12-01'}
@@ -21,7 +21,7 @@ function createStorageLocation() {
 function checkIfFileExistsInS3(bucket, s3Key) {
 
     return awsApiRequest({
-        service : 's3', 
+        service : 's3',
         host: `${bucket}.s3.amazonaws.com`,
         path : s3Key,
         method: 'HEAD'
@@ -31,7 +31,7 @@ function checkIfFileExistsInS3(bucket, s3Key) {
 function readFile(path) {
     return new Promise((resolve, reject) => {
         fs.readFile(path, (err, data) => {
-            if (err) {
+            if (err) {
                 reject(err);
             }
             resolve(data);
@@ -41,7 +41,7 @@ function readFile(path) {
 
 function uploadFileToS3(bucket, s3Key, filebuffer) {
     return awsApiRequest({
-        service : 's3', 
+        service : 's3',
         host: `${bucket}.s3.amazonaws.com`,
         path : s3Key,
         method: 'PUT',
@@ -54,7 +54,7 @@ function createBeanstalkVersion(application, bucket, s3Key, versionLabel, versio
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {
-            Operation: 'CreateApplicationVersion', 
+            Operation: 'CreateApplicationVersion',
             Version: '2010-12-01',
             ApplicationName : application,
             VersionLabel : versionLabel,
@@ -69,7 +69,7 @@ function deployBeanstalkVersion(application, environmentName, versionLabel) {
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {
-            Operation: 'UpdateEnvironment', 
+            Operation: 'UpdateEnvironment',
             Version: '2010-12-01',
             ApplicationName : application,
             EnvironmentName : environmentName,
@@ -82,7 +82,7 @@ function describeEvents(application, environmentName, startTime) {
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {
-            Operation: 'DescribeEvents', 
+            Operation: 'DescribeEvents',
             Version: '2010-12-01',
             ApplicationName : application,
             Severity : 'TRACE',
@@ -96,7 +96,7 @@ function describeEnvironments(application, environmentName) {
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {
-            Operation: 'DescribeEnvironments', 
+            Operation: 'DescribeEnvironments',
             Version: '2010-12-01',
             ApplicationName : application,
             'EnvironmentNames.members.1' : environmentName //Yes, that's the horrible way to pass an array...
@@ -108,7 +108,7 @@ function getApplicationVersion(application, versionLabel) {
     return awsApiRequest({
         service: 'elasticbeanstalk',
         querystring: {
-            Operation: 'DescribeApplicationVersions', 
+            Operation: 'DescribeApplicationVersions',
             Version: '2010-12-01',
             ApplicationName : application,
             'VersionLabels.members.1' : versionLabel //Yes, that's the horrible way to pass an array...
@@ -117,7 +117,7 @@ function getApplicationVersion(application, versionLabel) {
 }
 
 function expect(status, result, extraErrorMessage) {
-    if (status !== result.statusCode) { 
+    if (status !== result.statusCode) {
         if (extraErrorMessage) {
             console.log(extraErrorMessage);
         }
@@ -130,30 +130,34 @@ function expect(status, result, extraErrorMessage) {
 }
 
 //Uploads zip file, creates new version and deploys it
-function deployNewVersion(application, environmentName, versionLabel, versionDescription, file, waitUntilDeploymentIsFinished, waitForRecoverySeconds) {
+function deployNewVersion(application, environmentName, versionLabel, versionDescription, file, waitUntilDeploymentIsFinished, waitForRecoverySeconds, bucketName) {
 
     let s3Key = `/${application}/${versionLabel}.zip`;
     let bucket, deployStart, fileBuffer;
 
     readFile(file).then(result => {
         fileBuffer = result;
-        return createStorageLocation();
+        return bucketName || createStorageLocation();
     }).then(result => {
-        expect(200, result );
-        bucket = result.data.CreateStorageLocationResponse.CreateStorageLocationResult.S3Bucket;
+        if (typeof result === 'string') {
+            bucket = result;
+        } else {
+            expect(200, result );
+            bucket = result.data.CreateStorageLocationResponse.CreateStorageLocationResult.S3Bucket;
+        }
         console.log(`Uploading file to bucket ${bucket}`);
         return checkIfFileExistsInS3(bucket, s3Key);
     }).then(result => {
         if (result.statusCode === 200) {
             throw new Error(`Version ${versionLabel} already exists in S3!`);
         }
-        expect(404, result); 
+        expect(404, result);
         return uploadFileToS3(bucket, s3Key, fileBuffer);
     }).then(result => {
         expect(200, result);
         console.log(`New build successfully uploaded to S3, bucket=${bucket}, key=${s3Key}`);
         return createBeanstalkVersion(application, bucket, s3Key, versionLabel, versionDescription);
-    }).then(result => {
+    }).then(result => {
         expect(200, result);
         console.log(`Created new application version ${versionLabel} in Beanstalk.`);
         if (!environmentName) {
@@ -186,7 +190,7 @@ function deployNewVersion(application, environmentName, versionLabel, versionDes
     }).catch(err => {
         console.error(`Deployment failed: ${err}`);
         process.exit(2);
-    }); 
+    });
 }
 
 //Deploys existing version in EB
@@ -215,7 +219,7 @@ function deployExistingVersion(application, environmentName, versionLabel, waitU
     }).catch(err => {
         console.error(`Deployment failed: ${err}`);
         process.exit(2);
-    }); 
+    });
 }
 
 
@@ -226,15 +230,16 @@ function strip(val) {
 
 function main() {
 
-    let application, 
-        environmentName, 
+    let application,
+        environmentName,
         versionLabel,
         versionDescription,
-        region, 
-        file, 
-        useExistingVersionIfAvailable, 
-        waitForRecoverySeconds = 30, 
-        waitUntilDeploymentIsFinished = true; //Whether or not to wait for the deployment to complete...
+        region,
+        file,
+        useExistingVersionIfAvailable,
+        waitForRecoverySeconds = 30,
+        waitUntilDeploymentIsFinished = true, //Whether or not to wait for the deployment to complete...
+        bucketName;
 
     if (IS_GITHUB_ACTION) { //Running in GitHub Actions
         application = strip(process.env.INPUT_APPLICATION_NAME);
@@ -242,6 +247,7 @@ function main() {
         versionLabel = strip(process.env.INPUT_VERSION_LABEL);
         versionDescription = strip(process.env.INPUT_VERSION_DESCRIPTION);
         file = strip(process.env.INPUT_DEPLOYMENT_PACKAGE);
+        bucketName = strip(process.env.INPUT_BUCKET_NAME);
 
         awsApiRequest.accessKey = strip(process.env.INPUT_AWS_ACCESS_KEY);
         awsApiRequest.secretKey = strip(process.env.INPUT_AWS_SECRET_KEY);
@@ -306,6 +312,7 @@ function main() {
     console.log('      AWS Secret Key: ' + awsApiRequest.secretKey.length + ' characters long, starts with ' + awsApiRequest.secretKey.charAt(0));
     console.log(' Wait for deployment: ' + waitUntilDeploymentIsFinished);
     console.log('  Recovery wait time: ' + waitForRecoverySeconds);
+    console.log('         Bucket Name: ' + bucketName ? bucketName : 'Autogenerated');
     console.log('');
 
     getApplicationVersion(application, versionLabel).then(result => {
@@ -330,15 +337,15 @@ function main() {
                 console.log(`Deploying existing version ${versionLabel}, version info:`);
                 console.log(JSON.stringify(versionsList[0], null, 2));
                 deployExistingVersion(application, environmentName, versionLabel, waitUntilDeploymentIsFinished, waitForRecoverySeconds);
-            } 
+            }
         } else {
             if (file) {
-                deployNewVersion(application, environmentName, versionLabel, versionDescription, file, waitUntilDeploymentIsFinished, waitForRecoverySeconds);
-            } else {
+                deployNewVersion(application, environmentName, versionLabel, versionDescription, file, waitUntilDeploymentIsFinished, waitForRecoverySeconds, bucketName);
+            } else {
                 console.error(`Deployment failed: No deployment package given but version ${versionLabel} doesn't exist, so nothing to deploy!`);
                 process.exit(2);
-            } 
-        } 
+            }
+        }
     }).catch(err => {
         console.error(`Deployment failed: ${err}`);
         process.exit(2);
@@ -374,7 +381,7 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
         function update() {
 
             let elapsed = new Date().getTime() - waitStart;
-            
+
             //Limit update requests for really long deploys
             if (elapsed > (10 * MINUTE)) {
                 waitPeriod = 30 * SECOND;
@@ -385,7 +392,7 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
             describeEvents(application, environmentName, start).then(result => {
                 eventCalls++;
 
-                
+
                 //Allow a few throttling failures...
                 if (result.statusCode === 400 && result.data && result.data.Error && result.data.Error.Code == 'Throttling') {
                     consecutiveThrottleErrors++;
@@ -400,7 +407,7 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
                 for (let ev of events) {
                     let date = new Date(ev.EventDate * 1000); //Seconds to milliseconds,
                     console.log(`${date.toISOString().substr(11,8)} ${ev.Severity}: ${ev.Message}`);
-                    if (ev.Message.match(/Failed to deploy application/)) {
+                    if (ev.Message.match(/Failed to deploy application/)) {
                         deploymentFailed = true; //wait until next iteration to finish, to get the final messages...
                     }
                 }
@@ -408,7 +415,7 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
                     start = new Date(events[events.length-1].EventDate * 1000 + 1000); //Add extra second so we don't get the same message next time...
                 }
             }).catch(reject);
-    
+
             describeEnvironments(application, environmentName).then(result => {
                 environmentCalls++;
 
@@ -433,9 +440,9 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
                     if (!degraded) {
                         console.log(`Deployment finished. Version updated to ${env.VersionLabel}`);
                         console.log(`Status for ${application}-${environmentName} is ${env.Status}, Health: ${env.Health}, HealthStatus: ${env.HealthStatus}`);
-                       
+
                         if (env.Health === 'Green') {
-                            resolve(env);   
+                            resolve(env);
                         } else {
                             console.warn(`Environment update finished, but health is ${env.Health} and health status is ${env.HealthStatus}. Giving it ${waitForRecoverySeconds} seconds to recover...`);
                             degraded = true;
@@ -468,7 +475,7 @@ function waitForDeployment(application, environmentName, versionLabel, start, wa
                 }
             }).catch(reject);
         }
-    
+
         update();
     });
 }

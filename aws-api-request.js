@@ -4,7 +4,7 @@ const crypto = require('crypto'),
 const { encode } = require('punycode');
 
 function awsApiRequest(options) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
         let region = options.region || awsApiRequest.region || process.env.AWS_DEFAULT_REGION,
             service = options.service,
             accessKey = options.accessKey || awsApiRequest.accessKey || process.env.AWS_ACCESS_KEY_ID,
@@ -12,7 +12,7 @@ function awsApiRequest(options) {
             sessionToken = options.sessionToken || awsApiRequest.sessionToken || process.env.AWS_SESSION_TOKEN,
             method = options.method || 'GET',
             path = options.path || '/',
-            querystring = options.querystring || {},
+            querystring = options.querystring || {},
             payload = options.payload || '',
             host = options.host || `${service}.${region}.amazonaws.com`,
             headers = options.headers || {};
@@ -20,24 +20,24 @@ function awsApiRequest(options) {
         function hmacSha256(data, key, hex=false) {
             return crypto.createHmac('sha256', key).update(data).digest(hex ? 'hex' : undefined);
         }
-        
+
         function sha256(data) {
             return crypto.createHash('sha256').update(data).digest('hex');
         }
-        
+
         //Thanks to https://docs.aws.amazon.com/general/latest/gr/signature-v4-examples.html#signature-v4-examples-javascript
-        function createSigningKey(secretKey, dateStamp, region, serviceName) {
+        function createSigningKey(secretKey, dateStamp, region, serviceName) {
             let kDate = hmacSha256(dateStamp, 'AWS4' + secretKey);
             let kRegion = hmacSha256(region, kDate);
             let kService = hmacSha256(serviceName, kRegion);
             let kSigning = hmacSha256('aws4_request', kService);
             return kSigning;
         }
-        
+
         function createSignedHeaders(headers) {
             return Object.keys(headers).sort().map(h => h.toLowerCase()).join(';');
         }
-        
+
         function createStringToSign(timestamp, region, service, canonicalRequest) {
             let stringToSign = 'AWS4-HMAC-SHA256\n';
             stringToSign += timestamp + '\n';
@@ -45,7 +45,7 @@ function awsApiRequest(options) {
             stringToSign += sha256(canonicalRequest);
             return stringToSign;
         }
-        
+
         function createCanonicalRequest(method, path, querystring, headers, payload) {
             let canonical = method + '\n';
 
@@ -53,7 +53,7 @@ function awsApiRequest(options) {
             //double encode it...? The only time we actually encode a path other than / is when uploading to S3 so just change this to single encoding here
             //but it's possible it will mess up if the path has some weird characters that should be double encoded maybe??? If you had weird symbols in your version number?
             canonical += encodeURI(path) + '\n';
-        
+
             let qsKeys = Object.keys(querystring);
             qsKeys.sort();
 
@@ -65,17 +65,17 @@ function awsApiRequest(options) {
 
             let qsEntries = qsKeys.map(k => `${k}=${encodeValue(querystring[k])}`);
             canonical += qsEntries.join('&') + '\n';
-        
+
             let headerKeys = Object.keys(headers).sort();
             let headerEntries = headerKeys.map(h => h.toLowerCase() + ':' + headers[h].replace(/^\s*|\s*$/g, '').replace(' +', ' '));
             canonical += headerEntries.join('\n') + '\n\n';
-        
+
             canonical += createSignedHeaders(headers) + '\n';
             canonical += sha256(payload);
-        
+
             return canonical;
         }
-        
+
         function createAuthHeader(accessKey, timestamp, region, service, headers, signature) {
             let date = timestamp.substr(0,8);
             let signedHeaders = createSignedHeaders(headers);
@@ -135,7 +135,7 @@ function createResult(data, res) {
 }
 
 function request(method, path, headers, querystring, data, callback) {
-    
+
     let qs = Object.keys(querystring).map(k => `${k}=${encodeURIComponent(querystring[k])}`).join('&');
     path += '?' + qs;
     let hostname = headers.Host;
@@ -145,7 +145,7 @@ function request(method, path, headers, querystring, data, callback) {
     try {
         const options = { hostname, port, path, method, headers };
         const req = https.request(options, res => {
-    
+
             let chunks = [];
             res.on('data', d => chunks.push(d));
             res.on('end', () => {
@@ -162,7 +162,7 @@ function request(method, path, headers, querystring, data, callback) {
                     callback(null, createResult(buffer, res));
                 }
             });
-    
+
         });
         req.on('error', err => callback(err));
 
